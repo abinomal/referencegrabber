@@ -1,0 +1,1272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Reference-Grabber</title>
+
+<style>
+/* ============================================================
+   CSS CUSTOM PROPERTIES (Design Tokens)
+   These variables define the visual style – brushed metal,
+   aqua blue gradients, mac‑style text – making the UI
+   cohesive and easy to maintain.
+   ============================================================ */
+:root {
+  --brushed-aluminum: #d1d5da;
+  --window-bg: #e3e6ea;
+  --panel-dark: #3a3f44;
+  --panel-light: #f0f2f5;
+  --border-metal: #a3a8af;
+  --border-inset: #8e949c;
+  --aqua-blue: #3876e7;
+  --aqua-blue-grad: linear-gradient(to bottom, #5cb4ff 0%, #2b70f0 50%, #1050d0 100%);
+  --mac-text: #1c1c1c;
+  --mac-text-muted: #555555;
+}
+
+/* ============================================================
+   RESET & BASE
+   Box‑sizing border‑box everywhere, full‑height layout,
+   system font stack for a native‑looking studio.
+   ============================================================ */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; width: 100%; height: 100%;
+  overflow: hidden; /* prevent body scroll – app handles all scrolling */
+  font-family: "Lucida Grande", "Segoe UI", Helvetica, Arial, sans-serif;
+  background-color: var(--window-bg);
+  color: var(--mac-text);
+  font-size: 12px;
+}
+
+/* Main app container – vertical flex: header, toolbar, content area */
+.app { width:100vw; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+
+/* ============================================================
+   HEADER (merged title bar + timer + controls)
+   Combines the macOS‑style gradient, a centred title,
+   a timer on the left, and compact control buttons on the right.
+   Saves vertical space and keeps transport always visible.
+   ============================================================ */
+.header {
+  height: 36px; min-height: 36px;
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(to bottom, #ebebeb 0%, #d1d1d1 50%, #b4b4b4 100%);
+  border-bottom: 1px solid #7c7c7c;
+  padding: 0 12px;
+  font-size: 13px; font-weight: 700; color: #3f3f3f;
+  text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+}
+
+.header-left { display: flex; align-items: center; gap: 6px; }
+.header-title { font-size: 13px; font-weight: 700; text-align: center; flex: 1; }
+.header-right { display: flex; align-items: center; gap: 4px; }
+
+/* Timer – uses a monospace font inside an inset‑looking pill */
+.timer {
+  font-family: Monaco, Menlo, monospace;
+  font-size: 13px; font-weight: 700;
+  background: linear-gradient(to bottom, #fff 0%, #e0e0e0 100%);
+  padding: 1px 6px;
+  border: 1px solid #999;
+  border-radius: 3px;
+}
+
+/* Timer preset dropdown + custom time input, sit next to the timer pill */
+.timer-preset {
+  height:22px; font-size:11px; padding:0 3px; border-radius:4px;
+  border:1px solid #7c7c7c;
+  background: linear-gradient(to bottom, #ffffff 0%, #ececec 40%, #e0e0e0 50%, #dfdfdf 100%);
+  color:#222; cursor:pointer; outline:none;
+}
+.timer-custom-input {
+  height:22px; width:52px; font-size:11px; padding:0 4px; border-radius:4px;
+  border:1px solid #7c7c7c; text-align:center; outline:none;
+  background: linear-gradient(to bottom, #ffffff 0%, #f1f1f1 100%);
+}
+
+/* Small toolbar‑style buttons for transport (prev, next, focus, play/pause) */
+.ctrl-btn {
+  height: 23px; padding: 0 6px; font-size: 11px; font-weight: 600;
+  border: 1px solid #7c7c7c; border-radius: 4px;
+  cursor: pointer;
+  background: linear-gradient(to bottom, #ffffff 0%, #ececec 40%, #e0e0e0 50%, #dfdfdf 100%);
+  text-shadow: 0 1px 0 #fff;
+  color: #222;
+}
+.ctrl-btn.aqua { /* highlight for primary actions */
+  color: white; border: 1px solid #1a4ba0;
+  background: var(--aqua-blue-grad);
+  text-shadow: 0 -1px 0 rgba(0,0,0,0.4);
+}
+
+/* ============================================================
+   TOOLBAR
+   Contains filters, token inputs, and the generate button.
+   Styled like a classic macOS toolbar.
+   ============================================================ */
+.toolbar {
+  padding: 6px 12px;
+  display: flex; flex-wrap: wrap; gap: 8px;
+  background: linear-gradient(to bottom, #f3f3f3 0%, #dddddd 100%);
+  border-bottom: 1px solid var(--border-metal);
+  align-items: center;
+}
+.toolbar-group { display:flex; align-items:center; gap:4px; }
+.toolbar label { font-weight:bold; color:var(--mac-text-muted); }
+
+/* Standard select & number inputs – small, subtle gradient */
+select, input[type="number"] {
+  height:22px; padding:0 4px; font-size:11px; border-radius:4px;
+  border:1px solid var(--border-inset);
+  background: linear-gradient(to bottom, #ffffff 0%, #f1f1f1 100%);
+  outline:none;
+}
+
+/* Token container – acts like a tokenised search field (macOS‑inspired) */
+.prompt-container-box {
+  flex:1; min-width:180px; display:flex; align-items:center; gap:4px;
+  background:#fcfcfc; border:1px solid var(--border-inset); border-radius:5px;
+  padding:2px 6px; box-shadow:inset 0 1px 2px rgba(0,0,0,0.15); overflow:hidden;
+}
+.prompt-container-box.negative-box { background:#fcfcfc; border-color:var(--border-inset); }
+
+/* Scrollable row of tokens */
+.token-bay {
+  display:flex; gap:4px; overflow-x:auto; white-space:nowrap; max-width:65%;
+}
+.token-bay::-webkit-scrollbar { height:3px; }
+.token-bay::-webkit-scrollbar-thumb { background:#bbb; border-radius:2px; }
+
+/* Individual token pill */
+.tag-token {
+  background: linear-gradient(to bottom, #e2e8f0 0%, #cbd5e1 100%);
+  border:1px solid #94a3b8; padding:1px 6px; border-radius:10px;
+  display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:600;
+}
+.tag-token span { cursor:pointer; color:#ef4444; }
+
+/* Negative tokens have a slightly different treatment (same style for simplicity) */
+.negative-box .tag-token {
+  background: linear-gradient(to bottom, #e2e8f0 0%, #cbd5e1 100%);
+  border-color:#94a3b8;
+}
+
+/* Input inside token field – looks seamless */
+.prompt-routing-input {
+  border:none!important; outline:none!important; background:transparent!important;
+  font-size:12px; flex:1; min-width:60px;
+}
+
+/* Generic buttons – subtle gradient, small border, good for secondary actions */
+button {
+  height:23px; border:1px solid #7c7c7c; border-radius:4px; padding:0 10px;
+  font-size:11px; font-weight:600; cursor:pointer;
+  background: linear-gradient(to bottom, #ffffff 0%, #ececec 40%, #e0e0e0 50%, #dfdfdf 100%);
+  text-shadow:0 1px 0 #fff;
+}
+button.primary-aqua { /* primary action (Generate Pool) – aqua gradient */
+  color:white; border:1px solid #1a4ba0;
+  background:var(--aqua-blue-grad); text-shadow:0 -1px 0 rgba(0,0,0,0.4);
+}
+
+/* ============================================================
+   MAIN LAYOUT – Sidebar + Viewer
+   ============================================================ */
+.main {
+  flex:1; display:flex; overflow:hidden; background-color:#555;
+}
+
+/* Inspector sidebar – narrow panel for metadata and tags */
+.sidebar {
+  width:300px; min-width:300px; max-width:300px; overflow-y:auto; padding:10px;
+  background:#e8ebef; border-right:1px solid #9aa0a6;
+  display:flex; flex-direction:column; gap:10px; height:100%;
+  transition: margin-left 0.22s ease-in-out;
+}
+.sidebar.collapsed { margin-left:-300px; } /* hidden during focus mode */
+
+/* Card component inside sidebar */
+.card {
+  background:#f5f6f8; border:1px solid #b8bfc7; border-radius:5px; padding:10px;
+}
+.card h3 {
+  margin:0 0 8px 0; font-size:11px; text-transform:uppercase; color:var(--mac-text-muted);
+  border-bottom:1px dashed #b8bfc7; padding-bottom:4px;
+}
+
+.meta-row { margin-bottom:6px; }
+.meta-label { font-weight:bold; color:#444; font-size:11px; }
+.meta-val {
+  word-break:break-word; background:#ffffff; padding:4px;
+  border:1px solid #d1d5db; border-radius:3px; margin-top:2px;
+}
+.meta-val.source-badge {
+  font-weight:700; color:#1e3a8a; background:#eff6ff; border-color:#bfdbfe;
+}
+
+/* Tag cloud for reverse prompts */
+.debug-pill-cloud {
+  display:flex; flex-wrap:wrap; gap:4px; background:#ffffff; padding:6px;
+  border:1px solid #d1d5db; border-radius:3px; margin-top:2px; max-height:220px; overflow-y:auto;
+}
+.debug-tag {
+  background:linear-gradient(to bottom, #f8fafc 0%, #e2e8f0 100%);
+  color:#334155; border:1px solid #cbd5e1; padding:1px 5px; border-radius:3px;
+  font-family:monospace; font-size:10px; cursor:pointer;
+}
+.debug-tag:hover { background:#3876e7; color:white; border-color:#1d4ed8; }
+
+/* ============================================================
+   VIEWER – Image display and filmstrip
+   ============================================================ */
+.viewer {
+  flex:1; display:flex; flex-direction:column; background:#1e1e1e; overflow:hidden; height:100%;
+}
+
+/* Image area – centres the artwork, provides dark background */
+.image-area {
+  flex:1; display:flex; justify-content:center; align-items:center;
+  overflow:hidden; position:relative; padding:15px;
+}
+
+#loading { font-size:13px; font-weight:bold; color:#aaaaaa; text-align:center; line-height:1.5; }
+
+.image-area img {
+  width:100%; height:100%; max-width:100%; max-height:100%;
+  object-fit:contain; background:#111; outline:3px solid #333;
+  box-shadow:0 10px 30px rgba(0,0,0,0.6); cursor:pointer;
+}
+
+/* Loading bar for the main image (aqua, slides across the top) */
+.image-loading-bar {
+  position:absolute; top:0; left:0; height:4px;
+  background:var(--aqua-blue-grad); box-shadow:0 0 8px rgba(56,118,231,0.7);
+  transition: width 0.3s ease; width:0%; z-index:10; border-radius:0 2px 2px 0;
+}
+
+/* Filmstrip container */
+.filmstrip {
+  height:90px; min-height:90px; display:flex; gap:6px; overflow-x:auto;
+  padding:6px; background:#2d3033; border-top:1px solid #1c1d1f;
+  transition: height 0.22s ease-in-out, min-height 0.22s ease-in-out, padding 0.22s ease-in-out;
+}
+.filmstrip.collapsed { height:0px; min-height:0px; padding:0px; border-top:none; overflow:hidden; }
+
+/* Thumbnail wrapper – needed to position the loading indicator */
+.thumb-wrapper {
+  position: relative;
+  width:74px; height:74px; flex-shrink:0;
+}
+.thumb {
+  width:74px; height:74px; object-fit:cover; cursor:pointer; border-radius:3px;
+  border:2px solid #444; opacity:0.5; display:block;
+}
+.thumb.active { border-color: var(--aqua-blue); opacity:1; }
+
+/* Small aqua bar at the bottom of each thumbnail to show loading progress */
+.thumb-loading-bar {
+  position: absolute; bottom:0; left:0; height:3px;
+  background: var(--aqua-blue-grad); box-shadow:0 0 6px rgba(56,118,231,0.5);
+  width:0%; transition: width 0.3s ease;
+  border-radius:0 0 3px 3px;
+}
+.thumb-wrapper.loaded .thumb-loading-bar { display:none; } /* hide once fully loaded */
+
+/* Pool counter badge – bright blue, visible next to Calculate button */
+.pool-counter-badge {
+  background:#3b82f6; color:white; font-size:11px; font-weight:bold;
+  padding:2px 7px; border-radius:10px; text-shadow:0 -1px 0 rgba(0,0,0,0.2);
+}
+
+/* Focus mode indicator */
+.focus-indicator-pill {
+  position:absolute; top:12px; right:12px;
+  background:rgba(0,0,0,0.75); color:#fff; padding:4px 10px;
+  border-radius:12px; font-size:11px; pointer-events:none; font-weight:bold;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- HEADER: timer, title, transport buttons merged -->
+  <div class="header">
+    <div class="header-left">
+      <span class="timer" id="timer">02:00</span>
+      <select class="timer-preset" id="timerPreset" onchange="applyTimerPreset()">
+        <option value="30">30 sec</option>
+        <option value="60">1 min</option>
+        <option value="120" selected>2 min</option>
+        <option value="300">5 min</option>
+        <option value="600">10 min</option>
+        <option value="900">15 min</option>
+        <option value="custom">Custom…</option>
+      </select>
+      <input type="number" class="timer-custom-input" id="timerCustomInput" placeholder="min" min="0.1" step="0.5" style="display:none">
+    </div>
+    <div class="header-title">Reference Grabber Studio</div>
+    <div class="header-right">
+      <button class="ctrl-btn" onclick="toggleFocusMode()" id="btnFocus">Focus</button>
+      <button class="ctrl-btn aqua" onclick="toggleTimer()" id="btnPlay">Start</button>
+      <button class="ctrl-btn" onclick="previousImage()">◀</button>
+      <button class="ctrl-btn" onclick="nextImage()">▶</button>
+    </div>
+  </div>
+
+  <!-- TOOLBAR: search settings, token inputs, generate button -->
+  <div class="toolbar">
+    <div class="toolbar-group">
+      <label for="providerEngine">Library:</label>
+      <select id="providerEngine" onchange="runLiveCountEstimator()">
+        <option value="all">Combined (Wiki + Archive)</option>
+        <option value="wikimedia">Wikimedia Commons Only</option>
+        <option value="internetarchive">Internet Archive Only</option>
+      </select>
+    </div>
+
+    <div class="toolbar-group">
+      <label for="matchStrategy">Matching:</label>
+      <select id="matchStrategy" onchange="runLiveCountEstimator()">
+        <option value="and">Filter Overlap (AND)</option>
+        <option value="or">Individual Terms (OR)</option>
+      </select>
+    </div>
+
+    <div class="toolbar-group">
+      <label for="medium">Medium:</label>
+      <select id="medium" onchange="runLiveCountEstimator()">
+        <option value="">Any Medium</option>
+        <option value="photograph">Photography</option>
+        <option value="oil painting">Oil Painting</option>
+        <option value="watercolor">Watercolor</option>
+        <option value="charcoal drawing">Charcoal</option>
+      </select>
+    </div>
+
+    <div class="toolbar-group">
+      <label for="layoutSorting">Order:</label>
+      <select id="layoutSorting" onchange="applyLiveSequenceSorting()">
+        <option value="random">Randomize (Shuffle Pool)</option>
+        <option value="az">Title Sequence (A‑Z)</option>
+        <option value="za">Reverse Sequence (Z‑A)</option>
+      </select>
+    </div>
+
+    <!-- Positive token input -->
+    <div class="prompt-container-box">
+      <div class="token-bay" id="tokenBay"></div>
+      <input class="prompt-routing-input" id="bulkPromptInput" type="text" placeholder="Include tags...">
+    </div>
+
+    <!-- Negative token input -->
+    <div class="prompt-container-box negative-box">
+      <div class="token-bay" id="negativeTokenBay"></div>
+      <input class="prompt-routing-input" id="negativePromptInput" type="text" placeholder="Exclude tags...">
+    </div>
+
+    <div class="toolbar-group">
+      <button onclick="runLiveCountEstimator()">Calculate Matches</button>
+      <span id="livePoolCounter" class="pool-counter-badge" style="display:none">0 Hits</span>
+    </div>
+
+    <div class="toolbar-group">
+      <label for="sessionSize">Size:</label>
+      <input id="sessionSize" type="number" value="20" min="5" max="100" style="width: 44px;">
+    </div>
+
+    <button class="primary-aqua" onclick="buildSession()">Generate Pool</button>
+  </div>
+
+  <!-- MAIN CONTENT: sidebar + viewer -->
+  <div class="main">
+    
+    <!-- Sidebar: metadata inspector -->
+    <div class="sidebar" id="sidebarDrawer">
+      <div class="card">
+        <h3>Current File Inspector</h3>
+        <div class="meta-row">
+          <div class="meta-label">Catalog Provider Source</div>
+          <div class="meta-val source-badge" id="metaSource">—</div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">Title/Item ID</div>
+          <div class="meta-val" id="metaTitle">—</div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">Creator / Source</div>
+          <div class="meta-val" id="metaCreator">—</div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">Date Group</div>
+          <div class="meta-val" id="metaDate">—</div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">Technical Metadata</div>
+          <div class="meta-val" id="metaInteresting" style="max-height: 120px; overflow-y: auto;">—</div>
+        </div>
+        <div class="meta-row">
+          <div class="meta-label">Source Asset Link</div>
+          <div style="margin-top:3px;"><a id="sourceAssetLink" target="_blank">Open Source Record</a></div>
+        </div>
+      </div>
+
+      <div class="card" id="debugPromptCard">
+        <h3>Reverse Tag Inspector</h3>
+        <div class="meta-row">
+          <div class="meta-label">All Mapped Potential Prompts</div>
+          <div class="debug-pill-cloud" id="debugPillCloud"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Viewer: main image + filmstrip -->
+    <div class="viewer">
+      <div class="image-area" id="imageArea">
+        <div class="image-loading-bar" id="loadingBar"></div>
+        <div class="focus-indicator-pill" id="focusPill">Focus Mode: Click Image or Press 'F' to Reset</div>
+        <div id="loading">Add search tags above to build a dynamic art stream layout.</div>
+        <img id="mainImage" onclick="toggleFocusMode()" style="display:none" alt="Studio Canvas View">
+      </div>
+      <div id="filmstrip" class="filmstrip"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+// ============================================================
+// GLOBAL STATE
+// These variables hold the current session, tokens, timer, and
+// focus mode. They are accessed by most functions.
+// ============================================================
+let promptTokens = [];                // user‑added search keywords
+let negativeTokens = [];              // exclusion keywords (defaults: text, book)
+let sessionImages = [];               // the current pool of images
+let currentIndex = 0;                 // which image is currently displayed
+let DEFAULT_TIME = 120;             // slideshow timer length in seconds (default 2 min, user-adjustable)
+let remaining = DEFAULT_TIME;         // current countdown value
+let timerHandle = null;               // interval ID for the timer
+let running = false;                  // is the slideshow running?
+let focusModeActive = false;          // is focus mode on?
+
+// DOM references for frequently used elements
+const bulkInput = document.getElementById("bulkPromptInput");
+const negInput = document.getElementById("negativePromptInput");
+const tokenBay = document.getElementById("tokenBay");
+const negTokenBay = document.getElementById("negativeTokenBay");
+const loadingBar = document.getElementById("loadingBar");
+
+// ============================================================
+// TOKEN MANAGEMENT
+// Handles adding/removing visual tokens and feeding them
+// into the search queries.
+// ============================================================
+
+/** Renders all positive tokens as pill‑shaped elements */
+function renderTokens() {
+  tokenBay.innerHTML = "";
+  promptTokens.forEach((tok, index) => {
+    const div = document.createElement("div");
+    div.className = "tag-token";
+    div.innerText = tok + " ";
+    const rm = document.createElement("span");
+    rm.innerText = "×";
+    rm.onclick = () => { promptTokens.splice(index, 1); renderTokens(); runLiveCountEstimator(); };
+    div.appendChild(rm);
+    tokenBay.appendChild(div);
+  });
+}
+
+/** Renders all negative tokens (same style as positive) */
+function renderNegativeTokens() {
+  negTokenBay.innerHTML = "";
+  negativeTokens.forEach((tok, index) => {
+    const div = document.createElement("div");
+    div.className = "tag-token";
+    div.innerText = tok + " ";
+    const rm = document.createElement("span");
+    rm.innerText = "×";
+    rm.onclick = () => { negativeTokens.splice(index, 1); renderNegativeTokens(); runLiveCountEstimator(); };
+    div.appendChild(rm);
+    negTokenBay.appendChild(div);
+  });
+}
+
+// Convert comma/enter into tokens
+bulkInput.addEventListener("keydown", (e) => {
+  if (e.key === "," || e.key === "Enter") {
+    e.preventDefault();
+    const val = bulkInput.value.replace(/,/g, "").trim();
+    if (val && !promptTokens.includes(val)) {
+      promptTokens.push(val);
+      renderTokens();
+      runLiveCountEstimator();
+    }
+    bulkInput.value = "";
+  }
+});
+
+negInput.addEventListener("keydown", (e) => {
+  if (e.key === "," || e.key === "Enter") {
+    e.preventDefault();
+    const val = negInput.value.replace(/,/g, "").trim();
+    if (val && !negativeTokens.includes(val)) {
+      negativeTokens.push(val);
+      renderNegativeTokens();
+      runLiveCountEstimator();
+    }
+    negInput.value = "";
+  }
+});
+
+/** Allows clicking a tag in the reverse inspector to add it as a prompt */
+function injectDebugTag(tagText) {
+  const cleanTag = tagText.trim();
+  if (cleanTag && !promptTokens.includes(cleanTag)) {
+    promptTokens.push(cleanTag);
+    renderTokens();
+    runLiveCountEstimator();
+  }
+}
+
+// ============================================================
+// QUERY ASSEMBLY
+// Each provider has its own search syntax. These functions
+// translate the token arrays into a string the API understands.
+// ============================================================
+
+/**
+ * Maps the "Medium" dropdown to provider-specific, high-precision
+ * filters instead of relying on free-text matching against
+ * whatever happens to be in a description field.
+ *  - wikiCategory: a real Commons category, used via incategory:
+ *    (Commons files are reliably categorized by medium, so this is
+ *    far more accurate than hoping the word appears in the text).
+ *  - iaPhrase: the best plain-text phrase to AND into an Internet
+ *    Archive query, since IA has no equivalent structured field.
+ */
+const MEDIUM_MAP = {
+  "photograph":       { wikiCategory: "Photographs",         iaPhrase: "photograph" },
+  "oil painting":     { wikiCategory: "Oil paintings",       iaPhrase: "oil painting" },
+  "watercolor":       { wikiCategory: "Watercolor paintings", iaPhrase: "watercolor" },
+  "charcoal drawing": { wikiCategory: "Charcoal drawings",   iaPhrase: "charcoal drawing" }
+};
+
+/**
+ * Builds a Wikimedia Commons search string.
+ * Tokens are wrapped in quotes and joined with AND/OR.
+ * Medium is matched against a real Commons category (incategory:)
+ * when a mapping exists, which is far more accurate than free-text
+ * matching since Commons files are consistently categorized.
+ * Negative tokens are prefixed with a minus sign.
+ * Namespace restriction to File: is handled by the srnamespace/
+ * gsrnamespace API param elsewhere, not by query text.
+ */
+function assembleWikimediaQuery() {
+  const medium = document.getElementById("medium").value;
+  const strat = document.getElementById("matchStrategy").value;
+  const joiner = (strat === "and") ? " AND " : " OR ";
+
+  let q = promptTokens.length > 0
+    ? promptTokens.map(t => `"${t}"`).join(joiner)
+    : "art";
+
+  if (medium && MEDIUM_MAP[medium]) {
+    q = `(${q}) AND incategory:"${MEDIUM_MAP[medium].wikiCategory}"`;
+  } else if (medium) {
+    q = `(${q}) AND "${medium}"`;
+  }
+
+  if (negativeTokens.length) q += " " + negativeTokens.map(t => `-"${t}"`).join(" ");
+  return q;
+}
+
+/**
+ * Builds an Internet Archive search string.
+ * Two modes: general (mediatype:image) and Flickr (collection:flickrcommons).
+ * Medium is now honored here too (previously silently dropped, so
+ * choosing e.g. "Oil Painting" had no effect on Archive.org results).
+ * Negative tokens become NOT "token".
+ */
+function assembleInternetArchiveQuery(includeFlickr = false) {
+  const strat = document.getElementById("matchStrategy").value;
+  const medium = document.getElementById("medium").value;
+  const tokens = promptTokens.length > 0 ? promptTokens : ["art"];
+  const keywordPart = tokens.map(t => `"${t}"`).join(strat === "and" ? " AND " : " OR ");
+
+  let mediumPart = "";
+  if (medium) {
+    const phrase = MEDIUM_MAP[medium]?.iaPhrase || medium;
+    mediumPart = ` AND "${phrase}"`;
+  }
+
+  let negativePart = "";
+  if (negativeTokens.length > 0) {
+    negativePart = " AND " + negativeTokens.map(t => `NOT "${t}"`).join(" AND ");
+  }
+
+  if (includeFlickr) {
+    return `(${keywordPart})${mediumPart} AND collection:flickrcommons${negativePart}`;
+  }
+  return `(${keywordPart})${mediumPart} AND mediatype:image${negativePart}`;
+}
+
+// ============================================================
+// TAG EXTRACTION ENGINE
+// Produces a ranked, de-noised set of "reverse prompt" tags from
+// raw catalog metadata (title, description, categories/subjects,
+// creator, etc). Two problems in the old approach are fixed here:
+//   1. No stopword filtering at all – common words like "the",
+//      "file", "unknown", "jpg" flooded the tag cloud.
+//   2. Category/subject phrases were shredded into single words,
+//      losing meaning (e.g. "Oil paintings" became two unrelated
+//      tags "oil" and "paintings" instead of one useful tag).
+// This version keeps meaningful multi-word phrases intact, scores
+// tags by how many (and how important) fields they came from, and
+// returns the most relevant tags first instead of an arbitrary set.
+// ============================================================
+const TAG_STOPWORDS = new Set([
+  "the","and","with","from","for","this","that","was","were","are","has","have",
+  "its","into","via","page","pages","vol","volume","no","untitled","copy","copies",
+  "digital","digitized","scan","scanned","scans","upload","uploaded","uploads","user",
+  "users","public","domain","license","licensed","rights","reserved","reproduction",
+  "reproductions","file","files","image","images","photo","photos","photograph",
+  "photographs","picture","pictures","item","items","collection","collections",
+  "archive","archives","wikimedia","commons","wikipedia","org","com","http","https",
+  "www","jpg","jpeg","png","tif","tiff","gif","pdf","author","authors","unknown",
+  "unidentified","anonymous","source","sources","description","title","titled",
+  "original","originals","record","records","catalog","catalogue","identifier",
+  "various","misc","miscellaneous","other","others","new","old","see","also",
+  "part","parts","series","edition","editions","print","prints","printed","printing",
+  "not","und","der","die","das","von"
+]);
+
+/** Splits text into clean lowercase word tokens, dropping stopwords,
+ *  fragments under 3 characters, and bare numbers (except plausible
+ *  4-digit years, which are useful reference context). */
+function splitToWords(phrase) {
+  return String(phrase)
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map(w => w.trim())
+    .filter(w => {
+      if (w.length < 3) return false;
+      if (/^[0-9]+$/.test(w)) return /^(1[4-9][0-9]{2}|20[0-9]{2})$/.test(w);
+      return !TAG_STOPWORDS.has(w);
+    });
+}
+
+/** Normalizes a category/subject string into a clean phrase
+ *  ("Category:Oil_paintings" -> "oil paintings"). */
+function normalizePhrase(phrase) {
+  return String(phrase)
+    .replace(/^Category:/i, "")
+    .replace(/[_|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Builds a ranked tag list from weighted source fields.
+ * `sources` is an array of { text, weight, asPhrase } entries.
+ * `asPhrase:true` keeps short multi-word values (e.g. a category
+ * name) intact as a single tag, in addition to scoring its
+ * component words individually. Higher-signal fields (title,
+ * subject/category) should use a higher weight than noisy ones
+ * (free-text description).
+ * Returns up to `limit` tags, most relevant first.
+ */
+function buildTagProfile(sources, limit = 30) {
+  const scores = new Map();
+  const bump = (tag, weight) => {
+    if (!tag || tag.length < 3) return;
+    scores.set(tag, (scores.get(tag) || 0) + weight);
+  };
+
+  sources.forEach(({ text, weight, asPhrase }) => {
+    if (!text) return;
+    const values = Array.isArray(text) ? text : [text];
+    values.forEach(val => {
+      if (!val) return;
+      if (asPhrase) {
+        const phrase = normalizePhrase(val);
+        if (phrase && phrase.split(" ").length <= 4 && !TAG_STOPWORDS.has(phrase)) {
+          bump(phrase, weight + 1); // whole phrase scores slightly above its parts
+        }
+        splitToWords(phrase).forEach(w => bump(w, weight));
+      } else {
+        splitToWords(val).forEach(w => bump(w, weight));
+      }
+    });
+  });
+
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([tag]) => tag);
+}
+
+// ============================================================
+// LIVE COUNTER ESTIMATOR
+// Queries each selected provider for the total number of hits
+// and displays a combined count. Helps the user understand
+// how broad their search is before generating a pool.
+// ============================================================
+async function runLiveCountEstimator() {
+  const badge = document.getElementById("livePoolCounter");
+  const provider = document.getElementById("providerEngine").value;
+  badge.style.display = "inline-block";
+  badge.style.background = "#888888";
+  badge.textContent = "Estimating...";
+
+  let total = 0;
+
+  // Wikimedia count
+  if (provider === "wikimedia" || provider === "all") {
+    try {
+      const url = "https://commons.wikimedia.org/w/api.php?" + new URLSearchParams({
+        action:"query", format:"json", origin:"*", list:"search",
+        srsearch: assembleWikimediaQuery(), srnamespace:"6", srlimit:"1", srprop:""
+      });
+      const r = await fetch(url); const d = await r.json();
+      total += d.query?.searchinfo?.totalhits || 0;
+    } catch {}
+  }
+
+  // Internet Archive count – sum of general + Flickr
+  if (provider === "internetarchive" || provider === "all") {
+    try {
+      const [resGeneral, resFlickr] = await Promise.all([
+        fetch("https://archive.org/advancedsearch.php?" + new URLSearchParams({
+          q: assembleInternetArchiveQuery(false), output:"json", rows:"1", page:"1"
+        })),
+        fetch("https://archive.org/advancedsearch.php?" + new URLSearchParams({
+          q: assembleInternetArchiveQuery(true), output:"json", rows:"1", page:"1"
+        }))
+      ]);
+      const d1 = await resGeneral.json();
+      const d2 = await resFlickr.json();
+      total += (d1.response?.numFound || 0) + (d2.response?.numFound || 0);
+    } catch {}
+  }
+
+  badge.style.background = total > 0 ? "#27c93f" : "#ff5f56";
+  badge.textContent = `${total.toLocaleString()} Available`;
+}
+
+// ============================================================
+// FETCH FUNCTIONS
+// Each fetcher reaches out to its respective API, parses the
+// response, and returns an array of uniform image objects.
+// ============================================================
+
+/**
+ * Wikimedia Commons fetcher.
+ * First obtains total hits to pick a random offset, ensuring
+ * we don't always get the same first page of results.
+ * Then requests 50 images with full metadata.
+ */
+async function fetchStableWikimedia() {
+  let totalHits = 0;
+  try {
+    const countUrl = "https://commons.wikimedia.org/w/api.php?" + new URLSearchParams({
+      action:"query", format:"json", origin:"*", list:"search",
+      srsearch: assembleWikimediaQuery(), srnamespace:"6", srlimit:"1", srprop:""
+    });
+    const cr = await fetch(countUrl); const cd = await cr.json();
+    totalHits = cd.query?.searchinfo?.totalhits || 0;
+  } catch { totalHits = 5000; }
+  const maxOff = Math.min(totalHits, 10000) - 50;
+  const randOff = maxOff > 0 ? Math.floor(Math.random() * maxOff) : 0;
+  const url = "https://commons.wikimedia.org/w/api.php?" + new URLSearchParams({
+    action:"query", format:"json", origin:"*", generator:"search",
+    gsrsearch: assembleWikimediaQuery(), gsrnamespace:"6", gsrlimit:"50",
+    gsroffset: String(randOff),
+    prop:"imageinfo|globalusage|categories", iiprop:"url|extmetadata", iiurlwidth:"1200",
+    cllimit:"50"
+  });
+  try {
+    const r = await fetch(url); const data = await r.json();
+    return Object.values(data.query?.pages || {}).map(item => {
+      if (!item.imageinfo?.[0]?.thumburl) return null;
+      const titleClean = item.title.replace("File:", "").replace(/\.[^/.]+$/, "");
+      const meta = item.imageinfo[0].extmetadata;
+      const categoryTitles = (item.categories || []).map(c => c.title).filter(Boolean);
+      const usageTitles = (item.globalusage || []).map(u => u.title).filter(Boolean);
+
+      // Title and structured category/subject data are the strongest
+      // signal for what's actually depicted, so they're weighted
+      // highest and kept as intact phrases. Free-text description and
+      // creator/credit fields are noisier, so they contribute at a
+      // lower weight and only as individual words.
+      const tags = buildTagProfile([
+        { text: titleClean, weight: 3 },
+        { text: meta?.ObjectName?.value, weight: 3 },
+        { text: meta?.Categories?.value?.split("|"), weight: 3, asPhrase: true },
+        { text: categoryTitles, weight: 3, asPhrase: true },
+        { text: meta?.ImageDescription?.value?.replace(/<[^>]*>/g, ""), weight: 1 },
+        { text: meta?.Artist?.value?.replace(/<[^>]*>/g, ""), weight: 1 },
+        { text: meta?.Credit?.value?.replace(/<[^>]*>/g, ""), weight: 1 },
+        { text: usageTitles, weight: 1, asPhrase: true }
+      ]);
+
+      return {
+        sourceRepo: "Wikimedia Commons Digital Library",
+        title: titleClean,
+        image: item.imageinfo[0].thumburl,
+        creator: meta?.Artist?.value || "Wikimedia Contributor",
+        date: meta?.DateTime?.value || "Unknown",
+        tech: `License: ${meta?.LicenseShortName?.value||'Public Domain'}`,
+        link: "https://commons.wikimedia.org/wiki/" + encodeURIComponent(item.title),
+        possiblePrompts: tags
+      };
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+/**
+ * Generic Internet Archive fetcher.
+ * Uses the advancedsearch API with random sort.
+ * Returns objects with both a high‑res IIIF URL and a small preview.
+ */
+async function fetchIA(query, rows) {
+  const url = "https://archive.org/advancedsearch.php?" + new URLSearchParams({
+    q: query, output:"json", rows: String(Math.max(rows, 100)), page:"1",
+    "fl[]":"identifier,title,creator,date,description,subject,format",
+    sort:"random"
+  });
+  try {
+    const r = await fetch(url); const d = await r.json();
+    return (d.response?.docs || []).map(doc => {
+      if (!doc.identifier) return null;
+
+      // Subject headings are curated, phrase-level metadata (e.g.
+      // "Portrait photography") and are the most reliable indicator
+      // of content, so they're weighted highest and kept intact.
+      // Title is next-best; description/creator/identifier are
+      // noisier free text and contribute at a lower weight.
+      const tags = buildTagProfile([
+        { text: doc.subject, weight: 3, asPhrase: true },
+        { text: doc.title, weight: 3 },
+        { text: doc.description?.replace(/<[^>]*>/g, ""), weight: 1 },
+        { text: doc.creator, weight: 1 },
+        { text: doc.identifier, weight: 1 }
+      ]);
+
+      return {
+        sourceRepo: "Internet Archive (Archive.org)",
+        title: doc.title || doc.identifier,
+        image: `https://iiif.archive.org/iiif/${doc.identifier}/full/max/0/default.jpg`,    // high‑res
+        preview: `https://iiif.archive.org/iiif/${doc.identifier}/full/!500,500/0/default.jpg`, // low‑res placeholder
+        identifier: doc.identifier,
+        miniThumb: `https://archive.org/services/img/${doc.identifier}?scale=2`,
+        creator: doc.creator || "Internet Archive Digital Preservation Library",
+        date: doc.date || "Unknown Historical Era",
+        tech: `Catalog ID: ${doc.identifier}`,
+        link: `https://archive.org/details/${doc.identifier}`,
+        possiblePrompts: tags
+      };
+    }).filter(Boolean);
+  } catch { return []; }
+}
+
+/**
+ * Top‑level Internet Archive fetcher that merges two queries:
+ * general images + Flickr Commons.
+ */
+async function fetchStableInternetArchive(maxReq) {
+  const [general, flickr] = await Promise.all([
+    fetchIA(assembleInternetArchiveQuery(false), maxReq),
+    fetchIA(assembleInternetArchiveQuery(true), maxReq)
+  ]);
+  const seen = new Set();
+  const merged = [];
+  for (const item of [...general, ...flickr]) {
+    if (!seen.has(item.identifier)) {
+      seen.add(item.identifier);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+// ============================================================
+// SESSION BUILDER
+// Combines results from the selected provider(s), deduplicates,
+// trims to the desired session size, and triggers preloading.
+// ============================================================
+async function buildSession() {
+  // Stop any running slideshow
+  if (running) toggleTimer();
+  remaining = DEFAULT_TIME;
+  updateTimer();
+
+  const loadEl = document.getElementById("loading");
+  loadEl.style.display = "block";
+  loadEl.innerHTML = "Retrieving indexed data structures...";
+  document.getElementById("mainImage").style.display = "none";
+  document.getElementById("filmstrip").innerHTML = "";
+  document.getElementById("debugPillCloud").innerHTML = "";
+
+  const provider = document.getElementById("providerEngine").value;
+  const desiredSize = Number(document.getElementById("sessionSize").value) || 20;
+
+  let rawPool = [];
+
+  if (provider === "wikimedia") {
+    rawPool = await fetchStableWikimedia();
+  } else if (provider === "internetarchive") {
+    rawPool = await fetchStableInternetArchive(desiredSize);
+  } else {
+    const [w, ia] = await Promise.all([fetchStableWikimedia(), fetchStableInternetArchive(desiredSize)]);
+    rawPool = w.concat(ia);
+  }
+
+  // Remove duplicates (by image URL root)
+  const uniqueMap = new Map();
+  rawPool.forEach(item => {
+    if (!item || !item.image) return;
+    const key = item.image.split('?')[0].toLowerCase().trim();
+    if (!uniqueMap.has(key)) uniqueMap.set(key, item);
+  });
+  sessionImages = Array.from(uniqueMap.values()).slice(0, desiredSize);
+
+  if (!sessionImages.length) {
+    loadEl.textContent = "No valid matches found. Try widening search terms.";
+    return;
+  }
+
+  // Sort and display
+  applyLiveSequenceSorting();
+
+  // Preload all Archive.org high‑res images in background
+  startPreloading();
+}
+
+// ============================================================
+// BACKGROUND PRELOADING SYSTEM
+// After session creation, every IA image is loaded in the
+// background. The thumbnail loading bar reflects progress.
+// This ensures instant full‑resolution display when navigating.
+// ============================================================
+let loadedHighRes = new Set();  // identifiers that have been preloaded
+
+/** Kicks off preloading for all session images */
+function startPreloading() {
+  for (let i = 0; i < sessionImages.length; i++) {
+    const item = sessionImages[i];
+    if (item.sourceRepo === "Internet Archive (Archive.org)" && !loadedHighRes.has(item.identifier)) {
+      preloadImage(i);
+    } else {
+      // Wikimedia images are treated as instantly ready
+      loadedHighRes.add(item.identifier || item.image);
+      updateThumbLoadingBar(i, true);
+    }
+  }
+}
+
+/** Creates an off‑screen Image to fetch the high‑res version */
+function preloadImage(index) {
+  const item = sessionImages[index];
+  if (!item || item.sourceRepo !== "Internet Archive (Archive.org)") return;
+  if (loadedHighRes.has(item.identifier)) {
+    updateThumbLoadingBar(index, true);
+    return;
+  }
+
+  updateThumbLoadingBar(index, false);  // show loading indicator
+
+  const img = new Image();
+  img.onload = () => {
+    loadedHighRes.add(item.identifier);
+    updateThumbLoadingBar(index, true);
+  };
+  img.onerror = () => {
+    // even on error, mark as done to avoid hanging indicator
+    loadedHighRes.add(item.identifier);
+    updateThumbLoadingBar(index, true);
+  };
+  img.src = item.image;  // the high‑res IIIF URL
+}
+
+/** Updates the tiny loading bar under a thumbnail */
+function updateThumbLoadingBar(index, complete) {
+  const thumbWrappers = document.querySelectorAll('.thumb-wrapper');
+  if (index >= thumbWrappers.length) return;
+  const wrapper = thumbWrappers[index];
+  if (complete) {
+    wrapper.classList.add('loaded');
+  } else {
+    wrapper.classList.remove('loaded');
+  }
+}
+
+// ============================================================
+// SORTING & FILMSTRIP RENDERING
+// ============================================================
+
+/**
+ * Sorts the session images according to the user’s choice
+ * and then re‑renders the filmstrip.
+ */
+function applyLiveSequenceSorting() {
+  if (!sessionImages.length) return;
+  const sort = document.getElementById("layoutSorting").value;
+  if (sort === "random") {
+    for (let i = sessionImages.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [sessionImages[i], sessionImages[j]] = [sessionImages[j], sessionImages[i]];
+    }
+  } else if (sort === "az") {
+    sessionImages.sort((a, b) => String(a.title).localeCompare(String(b.title)));
+  } else if (sort === "za") {
+    sessionImages.sort((a, b) => String(b.title).localeCompare(String(a.title)));
+  }
+  renderFilmstrip();
+  showImage(0);
+}
+
+/** Rebuilds the filmstrip with thumbnails and loading bars */
+function renderFilmstrip() {
+  const strip = document.getElementById("filmstrip");
+  strip.innerHTML = "";
+  sessionImages.forEach((item, index) => {
+    const wrapper = document.createElement("div");
+    wrapper.className = "thumb-wrapper";
+
+    const img = document.createElement("img");
+    img.className = "thumb";
+    img.src = item.miniThumb || item.image;
+    img.onerror = () => { img.src = "https://archive.org/images/glogo.png"; };
+    img.onclick = () => { remaining = DEFAULT_TIME; updateTimer(); showImage(index); };
+
+    const bar = document.createElement("div");
+    bar.className = "thumb-loading-bar";
+
+    wrapper.appendChild(img);
+    wrapper.appendChild(bar);
+    strip.appendChild(wrapper);
+  });
+}
+
+// ============================================================
+// IMAGE DISPLAY (with progressive loading)
+// Shows a low‑res preview while the high‑res loads,
+// using an aqua loading bar at the top of the image area.
+// ============================================================
+function showImage(index) {
+  if (!sessionImages.length) return;
+  currentIndex = index;
+  const item = sessionImages[index];
+  document.getElementById("loading").style.display = "none";
+  const img = document.getElementById("mainImage");
+  const bar = document.getElementById("loadingBar");
+
+  // Reset loading bar
+  bar.style.width = "0%";
+  img.style.display = "block";
+
+  // For Archive.org, use preview → high‑res upgrade
+  if (item.preview && item.sourceRepo === "Internet Archive (Archive.org)") {
+    img.src = item.preview;
+    let progress = 0;
+    const progressInterval = setInterval(() => {
+      progress += 2;
+      if (progress >= 90) {
+        clearInterval(progressInterval);
+        bar.style.width = "90%";
+      } else {
+        bar.style.width = progress + "%";
+      }
+    }, 100);
+
+    // If already preloaded, swap immediately
+    if (loadedHighRes.has(item.identifier)) {
+      clearInterval(progressInterval);
+      img.src = item.image;
+      bar.style.width = "100%";
+      setTimeout(() => bar.style.width = "0%", 500);
+    } else {
+      const highRes = new Image();
+      highRes.onload = () => {
+        clearInterval(progressInterval);
+        loadedHighRes.add(item.identifier);
+        img.src = highRes.src;
+        bar.style.width = "100%";
+        setTimeout(() => bar.style.width = "0%", 500);
+        updateThumbLoadingBar(currentIndex, true);
+      };
+      highRes.onerror = () => {
+        clearInterval(progressInterval);
+        bar.style.width = "0%";
+        updateThumbLoadingBar(currentIndex, true);
+      };
+      highRes.src = item.image;
+    }
+  } else {
+    // Wikimedia or already loaded: set directly
+    img.src = item.image;
+  }
+
+  img.onerror = () => { img.src = "https://archive.org/images/glogo.png"; };
+
+  // Populate metadata sidebar
+  document.getElementById("metaSource").textContent = item.sourceRepo || "Unspecified";
+  document.getElementById("metaTitle").textContent = item.title;
+  document.getElementById("metaCreator").innerHTML = item.creator;
+  document.getElementById("metaDate").innerHTML = item.date;
+  document.getElementById("metaInteresting").innerHTML = item.tech;
+  document.getElementById("sourceAssetLink").href = item.link;
+
+  // Populate reverse tag cloud
+  const cloud = document.getElementById("debugPillCloud");
+  cloud.innerHTML = "";
+  if (item.possiblePrompts?.length) {
+    item.possiblePrompts.forEach(tag => {
+      const pill = document.createElement("span");
+      pill.className = "debug-tag";
+      pill.textContent = tag;
+      pill.onclick = () => injectDebugTag(tag);
+      cloud.appendChild(pill);
+    });
+  } else {
+    cloud.innerHTML = "<span style='color:#777; font-style:italic;'>No mapped tags.</span>";
+  }
+
+  // Highlight active thumbnail
+  const thumbs = document.querySelectorAll(".thumb");
+  thumbs.forEach(t => t.classList.remove("active"));
+  if (thumbs[index]) {
+    thumbs[index].classList.add("active");
+    thumbs[index].parentElement.scrollIntoView({ behavior:"smooth", block:"nearest", inline:"center" });
+  }
+}
+
+// ============================================================
+// FOCUS MODE
+// Hides the sidebar and filmstrip for an immersive view.
+// ============================================================
+function toggleFocusMode() {
+  focusModeActive = !focusModeActive;
+  const side = document.getElementById("sidebarDrawer");
+  const strip = document.getElementById("filmstrip");
+  const pill = document.getElementById("focusPill");
+  const btn = document.getElementById("btnFocus");
+  if (focusModeActive) {
+    side.classList.add("collapsed");
+    strip.classList.add("collapsed");
+    pill.style.display = "block";
+    btn.textContent = "Normal";
+  } else {
+    side.classList.remove("collapsed");
+    strip.classList.remove("collapsed");
+    pill.style.display = "none";
+    btn.textContent = "Focus";
+  }
+}
+
+// ============================================================
+// NAVIGATION
+// ============================================================
+function nextImage() {
+  if (!sessionImages.length) return;
+  remaining = DEFAULT_TIME; updateTimer();
+  showImage((currentIndex + 1) % sessionImages.length);
+}
+function previousImage() {
+  if (!sessionImages.length) return;
+  remaining = DEFAULT_TIME; updateTimer();
+  showImage((currentIndex - 1 + sessionImages.length) % sessionImages.length);
+}
+
+// ============================================================
+// TIMER (slideshow)
+// ============================================================
+function updateTimer() {
+  const m = Math.floor(remaining/60), s = String(remaining%60).padStart(2,"0");
+  document.getElementById("timer").textContent = `${String(m).padStart(2,"0")}:${s}`;
+}
+
+/**
+ * Applies the selected preset from the timer dropdown. Selecting
+ * "Custom…" reveals the adjacent number input (in minutes) instead
+ * of immediately changing the timer, so the user can type a value.
+ */
+function applyTimerPreset() {
+  const select = document.getElementById("timerPreset");
+  const customInput = document.getElementById("timerCustomInput");
+  if (select.value === "custom") {
+    customInput.style.display = "inline-block";
+    customInput.focus();
+    customInput.select();
+    return;
+  }
+  customInput.style.display = "none";
+  setSessionTimerLength(Number(select.value));
+}
+
+/** Reads the custom-time input (minutes, decimals allowed) and applies it. */
+function applyCustomTimer() {
+  const input = document.getElementById("timerCustomInput");
+  const minutes = parseFloat(input.value);
+  if (!minutes || minutes <= 0) return;
+  setSessionTimerLength(Math.round(minutes * 60));
+}
+
+/** Sets a new slideshow duration and immediately resets the countdown to it. */
+function setSessionTimerLength(seconds) {
+  DEFAULT_TIME = seconds;
+  remaining = seconds;
+  updateTimer();
+}
+
+document.getElementById("timerCustomInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); applyCustomTimer(); }
+});
+document.getElementById("timerCustomInput").addEventListener("blur", applyCustomTimer);
+
+function toggleTimer() {
+  const btn = document.getElementById("btnPlay");
+  running = !running;
+  if (running) {
+    btn.textContent = "Pause";
+    timerHandle = setInterval(() => {
+      remaining--;
+      if (remaining <= 0) { showImage((currentIndex+1)%sessionImages.length); remaining = DEFAULT_TIME; }
+      updateTimer();
+    }, 1000);
+  } else {
+    btn.textContent = "Start";
+    clearInterval(timerHandle);
+  }
+}
+
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+document.addEventListener("keydown", e => {
+  if (document.activeElement.tagName === "INPUT" || document.activeElement.tagName === "SELECT") return;
+  if (e.code === "Space") { e.preventDefault(); toggleTimer(); }
+  if (e.key === "ArrowRight") nextImage();
+  if (e.key === "ArrowLeft") previousImage();
+  if (e.key.toLowerCase() === "f") { e.preventDefault(); toggleFocusMode(); }
+});
+
+// ============================================================
+// INITIALISATION
+// Sets default negative tokens, renders UI, and runs first estimate.
+// ============================================================
+document.getElementById("focusPill").style.display = "none";
+negativeTokens.push("text", "book");   // default exclusions
+renderNegativeTokens();
+renderTokens();
+runLiveCountEstimator();
+</script>
+</body>
+</html>
