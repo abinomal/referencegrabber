@@ -1,3 +1,4 @@
+![example workflow](/demo/refgrabdemo.png)
 # Reference Grabber Studio
 ### Preface:
 Hi! I made this pretty simple Wikimedia/Internet Archive search tool so I could practice speed sketching (see Sketchdaily). However as someone who draws Architecture primarily, I found myself frustrated with the lack of options and styles to choose from with them. Thus "I" have "created" this html program to use the massive databases of the Wiki Commons and the Internet Archive for sketch references using their tags. It is however far from perfect as I have no background in programming.
