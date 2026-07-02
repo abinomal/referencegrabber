@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Reference-Grabber</title>
+<title>Cross-Platform Reference Studio</title>
 
 <style>
 /* ============================================================
@@ -86,6 +86,8 @@ html, body {
   border:1px solid #7c7c7c; text-align:center; outline:none;
   background: linear-gradient(to bottom, #ffffff 0%, #f1f1f1 100%);
 }
+.timer-custom-wrap { display:inline-flex; align-items:center; gap:3px; }
+.timer-unit-label { font-size:10px; font-weight:700; color:#5a5a5a; }
 
 /* Small toolbar‑style buttons for transport (prev, next, focus, play/pause) */
 .ctrl-btn {
@@ -306,9 +308,12 @@ button.primary-aqua { /* primary action (Generate Pool) – aqua gradient */
         <option value="900">15 min</option>
         <option value="custom">Custom…</option>
       </select>
-      <input type="number" class="timer-custom-input" id="timerCustomInput" placeholder="min" min="0.1" step="0.5" style="display:none">
+      <span class="timer-custom-wrap" id="timerCustomWrap" style="display:none">
+        <input type="number" class="timer-custom-input" id="timerCustomInput" placeholder="e.g. 7" min="0.1" step="0.5">
+        <span class="timer-unit-label">min</span>
+      </span>
     </div>
-    <div class="header-title">Reference Grabber Studio</div>
+    <div class="header-title">Cross-Platform Reference Studio</div>
     <div class="header-right">
       <button class="ctrl-btn" onclick="toggleFocusMode()" id="btnFocus">Focus</button>
       <button class="ctrl-btn aqua" onclick="toggleTimer()" id="btnPlay">Start</button>
@@ -544,25 +549,31 @@ function injectDebugTag(tagText) {
  * Maps the "Medium" dropdown to provider-specific, high-precision
  * filters instead of relying on free-text matching against
  * whatever happens to be in a description field.
- *  - wikiCategory: a real Commons category, used via incategory:
- *    (Commons files are reliably categorized by medium, so this is
- *    far more accurate than hoping the word appears in the text).
- *  - iaPhrase: the best plain-text phrase to AND into an Internet
- *    Archive query, since IA has no equivalent structured field.
+ *  - wikiCategory: a real Commons category, matched with deepcat:
+ *    rather than incategory:. incategory: only matches files filed
+ *    directly in that exact category, and almost nothing on Commons
+ *    is filed directly under a broad category like "Photographs" —
+ *    real photos live in specific subcategories (by subject, place,
+ *    photographer, etc). deepcat: recurses into those subcategories,
+ *    which is why switching to it fixes the "photography basically
+ *    returns nothing" problem.
+ *  - iaTerms: several synonym phrases ORed together for Internet
+ *    Archive, since IA has no structured medium field to match
+ *    against and a single exact phrase misses too many valid items.
  */
 const MEDIUM_MAP = {
-  "photograph":       { wikiCategory: "Photographs",         iaPhrase: "photograph" },
-  "oil painting":     { wikiCategory: "Oil paintings",       iaPhrase: "oil painting" },
-  "watercolor":       { wikiCategory: "Watercolor paintings", iaPhrase: "watercolor" },
-  "charcoal drawing": { wikiCategory: "Charcoal drawings",   iaPhrase: "charcoal drawing" }
+  "photograph":       { wikiCategory: "Photographs",          iaTerms: ["photograph", "photography", "photo"] },
+  "oil painting":     { wikiCategory: "Oil paintings",        iaTerms: ["oil painting", "oil on canvas"] },
+  "watercolor":       { wikiCategory: "Watercolor paintings", iaTerms: ["watercolor", "watercolour"] },
+  "charcoal drawing": { wikiCategory: "Charcoal drawings",    iaTerms: ["charcoal drawing", "charcoal sketch", "charcoal"] }
 };
 
 /**
  * Builds a Wikimedia Commons search string.
  * Tokens are wrapped in quotes and joined with AND/OR.
- * Medium is matched against a real Commons category (incategory:)
- * when a mapping exists, which is far more accurate than free-text
- * matching since Commons files are consistently categorized.
+ * Medium is matched against a real Commons category tree (deepcat:)
+ * when a mapping exists, which recurses into subcategories instead
+ * of requiring files to be filed directly under the top category.
  * Negative tokens are prefixed with a minus sign.
  * Namespace restriction to File: is handled by the srnamespace/
  * gsrnamespace API param elsewhere, not by query text.
@@ -577,7 +588,7 @@ function assembleWikimediaQuery() {
     : "art";
 
   if (medium && MEDIUM_MAP[medium]) {
-    q = `(${q}) AND incategory:"${MEDIUM_MAP[medium].wikiCategory}"`;
+    q = `(${q}) AND deepcat:"${MEDIUM_MAP[medium].wikiCategory}"`;
   } else if (medium) {
     q = `(${q}) AND "${medium}"`;
   }
@@ -589,8 +600,10 @@ function assembleWikimediaQuery() {
 /**
  * Builds an Internet Archive search string.
  * Two modes: general (mediatype:image) and Flickr (collection:flickrcommons).
- * Medium is now honored here too (previously silently dropped, so
- * choosing e.g. "Oil Painting" had no effect on Archive.org results).
+ * Medium is honored here too (previously silently dropped, so
+ * choosing e.g. "Oil Painting" had no effect on Archive.org results),
+ * and matched against a small OR'd group of synonym phrases rather
+ * than one exact phrase, since IA has no structured medium field.
  * Negative tokens become NOT "token".
  */
 function assembleInternetArchiveQuery(includeFlickr = false) {
@@ -601,8 +614,9 @@ function assembleInternetArchiveQuery(includeFlickr = false) {
 
   let mediumPart = "";
   if (medium) {
-    const phrase = MEDIUM_MAP[medium]?.iaPhrase || medium;
-    mediumPart = ` AND "${phrase}"`;
+    const terms = MEDIUM_MAP[medium]?.iaTerms || [medium];
+    const orGroup = terms.map(t => `"${t}"`).join(" OR ");
+    mediumPart = ` AND (${orGroup})`;
   }
 
   let negativePart = "";
@@ -712,6 +726,43 @@ function buildTagProfile(sources, limit = 30) {
     .map(([tag]) => tag);
 }
 
+/**
+ * Hard client-side exclusion check, run on every fetched item AFTER
+ * it comes back from the API. This exists because "-token"/"NOT"
+ * in the provider search only excludes matches against that
+ * provider's indexed search text — which does NOT necessarily cover
+ * every metadata field (e.g. Wikimedia's Artist/Credit fields and
+ * Internet Archive's raw identifier aren't part of the full-text
+ * search index, and stemming differences like "book" vs "books" can
+ * let things slip through). Checking the same tag/title/creator data
+ * the user sees in the Reverse Tag Inspector guarantees that if a
+ * negative tag is visible on an item, that item never gets shown.
+ * Returns true if the item should be EXCLUDED.
+ */
+function violatesNegativeTokens(item) {
+  if (!negativeTokens.length || !item) return false;
+  const haystack = new Set();
+  splitToWords(item.title).forEach(w => haystack.add(w));
+  // Deliberately NOT checking item.creator here: for old public-domain
+  // photographs the "creator" field is very often a publishing house
+  // (e.g. "American Book Company", "Ginn & Co., Booksellers"), and
+  // that incidentally containing "book" says nothing about whether
+  // the photograph itself depicts a book. Checking it was silently
+  // wiping out large numbers of legitimate photographs on publisher
+  // name alone.
+  // Only the strongest tags (title/subject/category derived, which
+  // score highest) are checked, not the full noisy tail of the tag
+  // list — a single incidental word from weak free-text description
+  // shouldn't be enough to drop an otherwise-good match.
+  (item.possiblePrompts || []).slice(0, 15).forEach(tag => splitToWords(tag).forEach(w => haystack.add(w)));
+
+  return negativeTokens.some(neg => {
+    const words = splitToWords(neg);
+    if (!words.length) return false; // negative token was pure stopword/number, ignore it
+    return words.every(w => haystack.has(w));
+  });
+}
+
 // ============================================================
 // LIVE COUNTER ESTIMATOR
 // Queries each selected provider for the total number of hits
@@ -757,7 +808,18 @@ async function runLiveCountEstimator() {
   }
 
   badge.style.background = total > 0 ? "#27c93f" : "#ff5f56";
-  badge.textContent = `${total.toLocaleString()} Available`;
+  // deepcat: (used for the Medium filter) can report a substantially
+  // inflated totalHits versus the number of results actually
+  // retrievable, since recursive category expansion can count the
+  // same file more than once before dedup. Flag the number as
+  // approximate in that case so it doesn't read as a hard guarantee.
+  const medium = document.getElementById("medium").value;
+  const isDeepCatSearch = !!(medium && MEDIUM_MAP[medium] && (provider === "wikimedia" || provider === "all"));
+  const prefix = isDeepCatSearch ? "~" : "";
+  badge.title = isDeepCatSearch
+    ? "Category-based counts for a selected Medium are approximate and may be higher than what's actually retrievable."
+    : "";
+  badge.textContent = `${prefix}${total.toLocaleString()} Available`;
 }
 
 // ============================================================
@@ -771,8 +833,23 @@ async function runLiveCountEstimator() {
  * First obtains total hits to pick a random offset, ensuring
  * we don't always get the same first page of results.
  * Then requests 50 images with full metadata.
+ *
+ * Special handling for deepcat: (used by the Medium filter) — its
+ * reported totalHits count can be substantially inflated relative to
+ * how many results CirrusSearch can actually page through, because
+ * the recursive category expansion can count the same file multiple
+ * times across different category paths before it's deduplicated.
+ * Picking a random offset scaled to that inflated total was landing
+ * past the real result set and coming back almost empty (e.g. 5
+ * images despite a "high" reported count). So for deepcat searches
+ * the offset range is capped much more conservatively, and if a
+ * chosen offset still comes back sparse, we fall back to the start
+ * of the result set, which is guaranteed to contain real matches.
  */
 async function fetchStableWikimedia() {
+  const medium = document.getElementById("medium").value;
+  const isDeepCatSearch = !!(medium && MEDIUM_MAP[medium]);
+
   let totalHits = 0;
   try {
     const countUrl = "https://commons.wikimedia.org/w/api.php?" + new URLSearchParams({
@@ -782,12 +859,29 @@ async function fetchStableWikimedia() {
     const cr = await fetch(countUrl); const cd = await cr.json();
     totalHits = cd.query?.searchinfo?.totalhits || 0;
   } catch { totalHits = 5000; }
-  const maxOff = Math.min(totalHits, 10000) - 50;
+
+  const offsetCeiling = isDeepCatSearch ? Math.min(totalHits, 400) : Math.min(totalHits, 10000);
+  const maxOff = offsetCeiling - 50;
   const randOff = maxOff > 0 ? Math.floor(Math.random() * maxOff) : 0;
+
+  const results = await fetchWikimediaPage(randOff);
+
+  // If the random page came back too sparse, the offset likely
+  // overshot the real (deduplicated) result set. Retry at the start,
+  // which will always reflect genuinely matching files if any exist.
+  if (results.length < 15 && randOff > 0) {
+    const fallback = await fetchWikimediaPage(0);
+    if (fallback.length > results.length) return fallback;
+  }
+  return results;
+}
+
+/** Fetches a single page of Wikimedia results at a given offset and maps them into the app's uniform image format. */
+async function fetchWikimediaPage(offset) {
   const url = "https://commons.wikimedia.org/w/api.php?" + new URLSearchParams({
     action:"query", format:"json", origin:"*", generator:"search",
     gsrsearch: assembleWikimediaQuery(), gsrnamespace:"6", gsrlimit:"50",
-    gsroffset: String(randOff),
+    gsroffset: String(offset),
     prop:"imageinfo|globalusage|categories", iiprop:"url|extmetadata", iiurlwidth:"1200",
     cllimit:"50"
   });
@@ -921,12 +1015,23 @@ async function buildSession() {
 
   if (provider === "wikimedia") {
     rawPool = await fetchStableWikimedia();
+    console.log(`[Reference Studio] Wikimedia returned: ${rawPool.length}`);
   } else if (provider === "internetarchive") {
     rawPool = await fetchStableInternetArchive(desiredSize);
+    console.log(`[Reference Studio] Internet Archive returned: ${rawPool.length}`);
   } else {
     const [w, ia] = await Promise.all([fetchStableWikimedia(), fetchStableInternetArchive(desiredSize)]);
+    console.log(`[Reference Studio] Wikimedia returned: ${w.length}, Internet Archive returned: ${ia.length}`);
     rawPool = w.concat(ia);
   }
+  const fetchedCount = rawPool.length;
+
+  // Hard exclusion pass: drop anything whose title/tags still contain
+  // an excluded word, even if the provider's own search already tried
+  // to exclude it. See violatesNegativeTokens() for why this extra
+  // check is necessary.
+  rawPool = rawPool.filter(item => item && !violatesNegativeTokens(item));
+  const afterExclusionCount = rawPool.length;
 
   // Remove duplicates (by image URL root)
   const uniqueMap = new Map();
@@ -937,8 +1042,15 @@ async function buildSession() {
   });
   sessionImages = Array.from(uniqueMap.values()).slice(0, desiredSize);
 
+  // Diagnostic trail — open the browser console (F12) to see exactly
+  // where the pool is shrinking: a provider returning too few results,
+  // the exclusion filter removing too many, or heavy duplication.
+  console.log(
+    `[Reference Studio] fetched: ${fetchedCount} → after exclusions: ${afterExclusionCount} → unique: ${uniqueMap.size} → session (capped to size ${desiredSize}): ${sessionImages.length}`
+  );
+
   if (!sessionImages.length) {
-    loadEl.textContent = "No valid matches found. Try widening search terms.";
+    loadEl.textContent = "No valid matches found. Try widening search terms or loosening exclusions.";
     return;
   }
 
@@ -1200,18 +1312,19 @@ function updateTimer() {
  */
 function applyTimerPreset() {
   const select = document.getElementById("timerPreset");
+  const customWrap = document.getElementById("timerCustomWrap");
   const customInput = document.getElementById("timerCustomInput");
   if (select.value === "custom") {
-    customInput.style.display = "inline-block";
+    customWrap.style.display = "inline-flex";
     customInput.focus();
     customInput.select();
     return;
   }
-  customInput.style.display = "none";
+  customWrap.style.display = "none";
   setSessionTimerLength(Number(select.value));
 }
 
-/** Reads the custom-time input (minutes, decimals allowed) and applies it. */
+/** Reads the custom-time input (always in minutes, decimals allowed) and applies it. */
 function applyCustomTimer() {
   const input = document.getElementById("timerCustomInput");
   const minutes = parseFloat(input.value);
